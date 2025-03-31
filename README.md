@@ -235,4 +235,4 @@ docker run -d -p 5000:5000 -v $(pwd):/app --name image-convert-dev image-convert
 
 ## License
 
-MIT License 
+This project is licensed under the GNU General Public License v3.0 - see the [LICENSE](LICENSE) file for details. 
