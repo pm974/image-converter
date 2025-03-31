@@ -6,6 +6,7 @@
     <title>Shared File - Image Converter</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <style>
         :root {
             --primary-color: #2c6ea5;
@@ -162,8 +163,52 @@
                             </div>
                         </div>
                         
-                        <div class="image-container">
-                            <img src="{{ file_url }}" alt="{{ filename }}">
+                        <div class="file-preview-container">
+                            {% if filename.lower().endswith(('.jpg', '.jpeg', '.png', '.gif', '.webp')) %}
+                                <!-- Image preview -->
+                                <div class="image-preview">
+                                    <img src="{{ file_url }}" alt="{{ filename }}" class="img-fluid rounded">
+                                </div>
+                            {% elif filename.lower().endswith('.svg') %}
+                                <!-- SVG preview -->
+                                <div class="svg-preview">
+                                    <img src="{{ file_url }}" alt="{{ filename }}" class="img-fluid rounded">
+                                    <div class="mt-2 small text-muted">
+                                        <i class="bi bi-info-circle me-1"></i>
+                                        SVG preview may not display properly in all browsers.
+                                    </div>
+                                </div>
+                            {% elif filename.lower().endswith('.pdf') %}
+                                <!-- PDF preview -->
+                                <div class="pdf-preview">
+                                    <div class="ratio ratio-16x9" style="max-height: 70vh;">
+                                        <iframe src="{{ file_url }}" title="{{ filename }}" allowfullscreen></iframe>
+                                    </div>
+                                    <div class="mt-2 small text-muted">
+                                        <i class="bi bi-info-circle me-1"></i>
+                                        PDF preview may not work in all browsers. Please download for better viewing.
+                                    </div>
+                                </div>
+                            {% else %}
+                                <!-- Generic file placeholder for other formats -->
+                                <div class="file-placeholder p-5 bg-light rounded text-center">
+                                    <div class="display-1 text-muted mb-3">
+                                        {% if filename.lower().endswith(('.tif', '.tiff')) %}
+                                            <i class="bi bi-file-earmark-richtext text-primary"></i>
+                                        {% elif filename.lower().endswith(('.bmp')) %}
+                                            <i class="bi bi-file-earmark-image text-info"></i>
+                                        {% elif filename.lower().endswith(('.heic', '.heif')) %}
+                                            <i class="bi bi-apple text-secondary"></i>
+                                        {% elif filename.lower().endswith('.tga') %}
+                                            <i class="bi bi-joystick text-success"></i>
+                                        {% else %}
+                                            <i class="bi bi-file-earmark"></i>
+                                        {% endif %}
+                                    </div>
+                                    <h4>{{ filename }}</h4>
+                                    <p class="text-muted">Preview not available for this file type</p>
+                                </div>
+                            {% endif %}
                         </div>
                         
                         <div class="d-grid gap-2 col-md-6 mx-auto mt-4">

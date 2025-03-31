@@ -40,7 +40,7 @@ def get_supported_formats():
     
     # Filter output formats to only include specified ones
     allowed_output_formats = [
-        'JPEG', 'JPG', 'PNG', 'GIF', 'TIFF', 'TIF', 'BMP', 'DIB', 
+        'JPEG', 'JPG', 'PNG', 'GIF', 'TIFF', 'TIF', 'BMP', 
         'HEIC', 'HEIF', 'WEBP', 'PDF', 'SVG', 'TGA'
     ]
     writable_formats = {k: v for k, v in writable_formats.items() if k in allowed_output_formats}
