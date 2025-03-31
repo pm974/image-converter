@@ -30,6 +30,7 @@ uploads/
 outputs/
 data/
 sessions.json
+build-and-push.sh
 
 # Mac OS
 .DS_Store
