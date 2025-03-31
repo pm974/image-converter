@@ -34,6 +34,17 @@ def get_supported_formats():
     # Add HEIC format since we have pillow_heif
     readable_formats['HEIC'] = 'HEIC'
     
+    # Remove EPS from both input and output formats
+    if 'EPS' in readable_formats:
+        del readable_formats['EPS']
+    
+    # Filter output formats to only include specified ones
+    allowed_output_formats = [
+        'JPEG', 'JPG', 'PNG', 'GIF', 'TIFF', 'TIF', 'BMP', 'DIB', 
+        'HEIC', 'HEIF', 'WEBP', 'PDF', 'SVG', 'TGA'
+    ]
+    writable_formats = {k: v for k, v in writable_formats.items() if k in allowed_output_formats}
+    
     # Sort formats alphabetically
     sorted_input = sorted(readable_formats.keys())
     sorted_output = sorted(writable_formats.keys())
