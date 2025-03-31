@@ -1,0 +1,681 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Image Converter - Web Version</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+    <style>
+        :root {
+            --primary-color: #2c6ea5;
+            --primary-dark: #1c5c8e;
+            --primary-light: #4a8bc7;
+            --secondary-color: #f48c4e;
+            --secondary-dark: #e67a3a;
+            --secondary-light: #ffac7a;
+            --accent-color: #56b786;
+            --accent-dark: #409b6b;
+            --accent-light: #7ed3a9;
+            --text-light: #f8f9fa;
+            --text-dark: #333333;
+            --bg-light: rgba(255, 255, 255, 0.95);
+            --card-bg: rgba(255, 255, 255, 0.9);
+        }
+        
+        body {
+            min-height: 100vh;
+            background: url('/static/image-background.svg') no-repeat center center fixed;
+            background-size: cover;
+            background-color: var(--primary-color);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: var(--text-dark);
+        }
+        
+        .card {
+            background-color: var(--card-bg);
+            backdrop-filter: blur(10px);
+            border: none;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+        
+        .card-header {
+            background: var(--primary-color);
+            color: white;
+            border-bottom: none;
+            padding: 1.2rem 1.5rem;
+            position: relative;
+        }
+        
+        .card-header h3 {
+            margin: 0;
+            font-weight: 600;
+        }
+        
+        .card-body {
+            padding: 2rem;
+        }
+        
+        .dropzone {
+            border: 2px dashed var(--primary-color);
+            border-radius: 10px;
+            padding: 3rem 2rem;
+            text-align: center;
+            cursor: pointer;
+            margin-bottom: 20px;
+            transition: all 0.3s ease;
+            background-color: rgba(255, 255, 255, 0.7);
+        }
+        
+        .dropzone:hover {
+            background-color: rgba(255, 255, 255, 0.9);
+            border-color: var(--primary-dark);
+            transform: translateY(-2px);
+        }
+        
+        .dropzone p {
+            color: var(--primary-color);
+            font-size: 1.1rem;
+            margin-bottom: 1rem;
+        }
+        
+        .file-list {
+            max-height: 300px;
+            overflow-y: auto;
+            background: rgba(255, 255, 255, 0.7);
+            border-radius: 8px;
+            padding: 0.5rem;
+        }
+        
+        .file-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.8rem 1rem;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+            border-radius: 6px;
+            margin-bottom: 0.5rem;
+            background-color: white;
+            transition: all 0.2s ease;
+        }
+        
+        .file-item:hover {
+            background-color: var(--bg-light);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+        }
+        
+        .file-item:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+        }
+        
+        .results-container {
+            display: none;
+            margin-top: 30px;
+        }
+        
+        .loading {
+            display: none;
+            text-align: center;
+            margin: 20px 0;
+        }
+        
+        .spinner-border {
+            width: 3rem; 
+            height: 3rem;
+            color: var(--primary-color);
+        }
+        
+        .btn-primary {
+            background-color: var(--primary-color);
+            border-color: var(--primary-color);
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary:hover {
+            background-color: var(--primary-dark);
+            border-color: var(--primary-dark);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+        
+        .btn-outline-primary {
+            color: var(--primary-color);
+            border-color: var(--primary-color);
+        }
+        
+        .btn-outline-primary:hover {
+            background-color: var(--primary-color);
+            color: white;
+        }
+        
+        .btn-success {
+            background-color: var(--accent-color);
+            border-color: var(--accent-color);
+        }
+        
+        .btn-success:hover {
+            background-color: var(--accent-dark);
+            border-color: var(--accent-dark);
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+        }
+        
+        .btn-outline-danger {
+            color: #dc3545;
+            border-color: #dc3545;
+            padding: 0.25rem 0.5rem;
+            font-size: 0.875rem;
+        }
+        
+        .btn-outline-danger:hover {
+            background-color: #dc3545;
+            color: white;
+        }
+        
+        .form-select:focus, .form-control:focus {
+            border-color: var(--primary-light);
+            box-shadow: 0 0 0 0.25rem rgba(74, 139, 199, 0.25);
+        }
+        
+        .alert-success {
+            background-color: rgba(86, 183, 134, 0.2);
+            border-color: var(--accent-color);
+            color: var(--accent-dark);
+        }
+        
+        .alert-warning {
+            background-color: rgba(244, 140, 78, 0.2);
+            border-color: var(--secondary-color);
+            color: var(--secondary-dark);
+        }
+        
+        .badge.bg-success {
+            background-color: var(--accent-color) !important;
+        }
+        
+        .badge.bg-danger {
+            background-color: #dc3545 !important;
+        }
+        
+        .table {
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
+        }
+        
+        .table thead th {
+            background-color: rgba(44, 110, 165, 0.1);
+            color: var(--primary-dark);
+            font-weight: 600;
+            border-bottom: none;
+        }
+        
+        .table-striped tbody tr:nth-of-type(odd) {
+            background-color: rgba(0, 0, 0, 0.02);
+        }
+        
+        h5 {
+            color: var(--primary-color);
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+        
+        .btn-sm {
+            border-radius: 6px;
+        }
+        
+        .form-select, .form-control {
+            border-radius: 8px;
+        }
+        
+        @media (max-width: 768px) {
+            .card-body {
+                padding: 1.5rem;
+            }
+            .dropzone {
+                padding: 2rem 1rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container py-5">
+        <div class="row justify-content-center">
+            <div class="col-lg-10">
+                <div class="card">
+                    <div class="card-header">
+                        <h3><i class="bi bi-images me-2"></i>Image Converter</h3>
+                    </div>
+                    <div class="card-body">
+                        <div id="upload-container">
+                            <div class="dropzone" id="dropzone">
+                                <p><i class="bi bi-cloud-arrow-up fs-1"></i></p>
+                                <p>Drag and drop images here, or click to select files</p>
+                                <p class="text-muted">Supported input formats: {{ ", ".join(input_formats) }}</p>
+                                <input type="file" id="fileInput" multiple class="d-none">
+                                <button class="btn btn-primary" id="browseBtn">
+                                    <i class="bi bi-folder2-open me-2"></i>Select Files
+                                </button>
+                            </div>
+                            
+                            <div id="fileList" class="file-list mb-4" style="display: none;">
+                                <h5 class="mb-3">Selected Files:</h5>
+                                <div id="fileItems"></div>
+                            </div>
+                            
+                            <div class="row mb-4">
+                                <div class="col-md-6">
+                                    <label for="formatSelect" class="form-label">Convert to:</label>
+                                    <select id="formatSelect" class="form-select">
+                                        {% for format in output_formats %}
+                                        <option value="{{ format.lower() }}" {% if format.lower() == 'jpeg' %}selected{% endif %}>{{ format }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="col-md-6 d-flex align-items-end">
+                                    <button id="convertBtn" class="btn btn-success w-100" disabled>
+                                        <i class="bi bi-arrow-repeat me-2"></i>Convert Files
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div class="alert alert-info" role="alert">
+                                <i class="bi bi-info-circle-fill me-2"></i>
+                                <span>Upload any supported image and convert it to your preferred format.</span>
+                            </div>
+                        </div>
+                        
+                        <div id="loading" class="loading">
+                            <div class="spinner-border" role="status">
+                                <span class="visually-hidden">Loading...</span>
+                            </div>
+                            <p class="mt-3">Converting your files...</p>
+                        </div>
+                        
+                        <div id="results" class="results-container">
+                            <div class="alert alert-success mb-4" role="alert">
+                                <i class="bi bi-check-circle-fill me-2"></i>
+                                <span>Conversion completed successfully!</span>
+                            </div>
+                            
+                            <div class="card mb-4">
+                                <div class="card-header">
+                                    <h5 class="mb-0">
+                                        <i class="bi bi-clock-history me-2"></i>
+                                        <span>Session expires in <span id="countdownDisplay"></span></span>
+                                    </h5>
+                                </div>
+                                <div class="card-body">
+                                    <p>Your converted files will be available for the next hour. You can extend this time if needed.</p>
+                                    <button id="extendBtn" class="btn btn-outline-primary">
+                                        <i class="bi bi-hourglass-split me-2"></i>Extend Time
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div class="d-flex justify-content-between mb-4">
+                                <h4>Converted Images</h4>
+                                <button id="downloadAllBtn" class="btn btn-primary">
+                                    <i class="bi bi-file-earmark-zip me-2"></i>Download All as ZIP
+                                </button>
+                            </div>
+                            
+                            <div id="resultItems" class="table-responsive">
+                                <table class="table table-striped table-hover">
+                                    <thead>
+                                        <tr>
+                                            <th>Original File</th>
+                                            <th>Converted File</th>
+                                            <th>Actions</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody></tbody>
+                                </table>
+                            </div>
+                            
+                            <div class="mt-4">
+                                <h5>Share All Files</h5>
+                                <p>Share a link to all converted files in this session:</p>
+                                <div class="input-group mb-3">
+                                    <input type="text" id="sessionUrl" class="form-control" readonly>
+                                    <button class="btn btn-outline-primary" type="button" id="copySessionBtn">
+                                        <i class="bi bi-clipboard me-2"></i>Copy
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div class="text-center mt-4">
+                                <button id="convertMoreBtn" class="btn btn-primary">
+                                    <i class="bi bi-arrow-left me-2"></i>Convert More Files
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="text-center mt-4 text-white">
+                    <p>&copy; 2023 Image Converter - <a href="https://github.com/yourusername/image-converter" class="text-white">View on GitHub</a></p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const dropzone = document.getElementById('dropzone');
+            const fileInput = document.getElementById('fileInput');
+            const browseBtn = document.getElementById('browseBtn');
+            const fileItems = document.getElementById('fileItems');
+            const fileList = document.getElementById('fileList');
+            const convertBtn = document.getElementById('convertBtn');
+            const formatSelect = document.getElementById('formatSelect');
+            const loading = document.getElementById('loading');
+            const uploadContainer = document.getElementById('upload-container');
+            const results = document.getElementById('results');
+            const resultsTable = document.querySelector('#resultItems tbody');
+            const downloadAllBtn = document.getElementById('downloadAllBtn');
+            const convertMoreBtn = document.getElementById('convertMoreBtn');
+            const extendBtn = document.getElementById('extendBtn');
+            
+            let files = [];
+            let sessionId = null;
+            let downloadAllUrl = null;
+            let countdownInterval = null;
+            let expirationTime = null;
+            
+            // Prevent defaults for drag events
+            function preventDefaults(e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+            
+            // Highlight dropzone on drag
+            function highlight() {
+                dropzone.classList.add('border-primary');
+                dropzone.classList.add('bg-light');
+            }
+            
+            // Remove highlight on drag leave
+            function unhighlight() {
+                dropzone.classList.remove('border-primary');
+                dropzone.classList.remove('bg-light');
+            }
+            
+            // Handle drop event
+            function handleDrop(e) {
+                preventDefaults(e);
+                unhighlight();
+                
+                const dt = e.dataTransfer;
+                const newFiles = [...dt.files];
+                handleFiles(newFiles);
+            }
+            
+            // Handle file selection
+            function handleFiles(newFiles) {
+                files = [...newFiles];
+                updateFileList();
+            }
+            
+            // Update the file list UI
+            function updateFileList() {
+                fileItems.innerHTML = '';
+                
+                if (files.length > 0) {
+                    fileList.style.display = 'block';
+                    convertBtn.disabled = false;
+                    
+                    files.forEach((file, index) => {
+                        const item = document.createElement('div');
+                        item.className = 'file-item';
+                        
+                        const nameSpan = document.createElement('span');
+                        nameSpan.textContent = file.name;
+                        
+                        const removeBtn = document.createElement('button');
+                        removeBtn.className = 'btn btn-sm btn-outline-danger';
+                        removeBtn.innerHTML = '<i class="bi bi-x"></i>';
+                        removeBtn.addEventListener('click', () => {
+                            files.splice(index, 1);
+                            updateFileList();
+                        });
+                        
+                        item.appendChild(nameSpan);
+                        item.appendChild(removeBtn);
+                        fileItems.appendChild(item);
+                    });
+                } else {
+                    fileList.style.display = 'none';
+                    convertBtn.disabled = true;
+                }
+            }
+            
+            // Convert files
+            function convertFiles() {
+                if (files.length === 0) return;
+                
+                // Show loading state
+                loading.style.display = 'block';
+                uploadContainer.style.display = 'none';
+                
+                const formData = new FormData();
+                files.forEach(file => {
+                    formData.append('files[]', file);
+                });
+                formData.append('format', formatSelect.value);
+                
+                fetch('/upload', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(responseData => {
+                    // Store session data
+                    sessionId = responseData.session_id;
+                    downloadAllUrl = responseData.download_all_url;
+                    expirationTime = new Date(responseData.expires_at).getTime();
+                    
+                    // Set up countdown timer
+                    startCountdown();
+                    
+                    // Set session URL
+                    const sessionUrlInput = document.getElementById('sessionUrl');
+                    sessionUrlInput.value = responseData.session_url;
+                    
+                    // Populate results
+                    populateResults(responseData.results);
+                    
+                    // Add download all handler
+                    downloadAllBtn.addEventListener('click', function() {
+                        window.location.href = downloadAllUrl;
+                    });
+                    
+                    // Hide loading, show results
+                    loading.style.display = 'none';
+                    results.style.display = 'block';
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Error: ' + error.message);
+                    loading.style.display = 'none';
+                    uploadContainer.style.display = 'block';
+                });
+            }
+            
+            // Start countdown timer
+            function startCountdown() {
+                if (countdownInterval) {
+                    clearInterval(countdownInterval);
+                }
+                
+                const countdownDisplay = document.getElementById('countdownDisplay');
+                
+                countdownInterval = setInterval(function() {
+                    // Get time difference
+                    const now = new Date().getTime();
+                    const distance = expirationTime - now;
+                    
+                    // Calculate time components
+                    const hours = Math.floor(distance / (1000 * 60 * 60));
+                    const minutes = Math.floor((distance % (1000 * 60 * 60)) / (1000 * 60));
+                    const seconds = Math.floor((distance % (1000 * 60)) / 1000);
+                    
+                    // Display countdown
+                    countdownDisplay.textContent = `${hours}h ${minutes}m ${seconds}s`;
+                    
+                    // If expired
+                    if (distance < 0) {
+                        clearInterval(countdownInterval);
+                        countdownDisplay.textContent = 'EXPIRED';
+                    }
+                }, 1000);
+            }
+            
+            // Populate results table
+            function populateResults(results) {
+                resultsTable.innerHTML = '';
+                
+                results.forEach(result => {
+                    if (result.status === 'success') {
+                        const row = document.createElement('tr');
+                        
+                        // Original filename cell
+                        const nameCell = document.createElement('td');
+                        nameCell.textContent = result.original;
+                        
+                        // Converted filename cell
+                        const convertedCell = document.createElement('td');
+                        convertedCell.textContent = result.converted;
+                        
+                        // Actions cell
+                        const actionCell = document.createElement('td');
+                        
+                        // Download button
+                        const downloadBtn = document.createElement('a');
+                        downloadBtn.href = result.download_url;
+                        downloadBtn.className = 'btn btn-sm btn-primary me-2';
+                        downloadBtn.innerHTML = '<i class="bi bi-download"></i> Download';
+                        
+                        // Share button
+                        const shareBtn = document.createElement('button');
+                        shareBtn.className = 'btn btn-sm btn-outline-primary';
+                        shareBtn.innerHTML = '<i class="bi bi-share"></i> Share';
+                        shareBtn.addEventListener('click', function() {
+                            navigator.clipboard.writeText(result.share_url)
+                                .then(() => {
+                                    alert('Link copied to clipboard!');
+                                })
+                                .catch(err => {
+                                    console.error('Could not copy text: ', err);
+                                });
+                        });
+                        
+                        actionCell.appendChild(downloadBtn);
+                        actionCell.appendChild(shareBtn);
+                        
+                        row.appendChild(nameCell);
+                        row.appendChild(convertedCell);
+                        row.appendChild(actionCell);
+                        resultsTable.appendChild(row);
+                    }
+                });
+            }
+            
+            // Reset file input and UI
+            function resetForm() {
+                files = [];
+                fileInput.value = '';
+                
+                // Hide results, show upload container
+                results.style.display = 'none';
+                uploadContainer.style.display = 'block';
+                fileList.style.display = 'none';
+                
+                // Disable convert button
+                convertBtn.disabled = true;
+                
+                // Clear countdown
+                if (countdownInterval) {
+                    clearInterval(countdownInterval);
+                }
+            }
+            
+            // Extend session time
+            function extendSession() {
+                if (!sessionId) {
+                    alert('Session ID not found. Cannot extend session.');
+                    return;
+                }
+                
+                console.log('Extending session with ID:', sessionId);
+                
+                fetch(`/extend/${sessionId}`, {
+                    method: 'POST'
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.status === 'success') {
+                        expirationTime = new Date(data.expires_at).getTime();
+                        startCountdown();
+                        alert('Session extended successfully!');
+                    } else {
+                        alert('Error extending session: ' + data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('Error extending session.');
+                });
+            }
+            
+            // Event listeners
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                dropzone.addEventListener(eventName, preventDefaults, false);
+            });
+            
+            ['dragenter', 'dragover'].forEach(eventName => {
+                dropzone.addEventListener(eventName, highlight, false);
+            });
+            
+            ['dragleave', 'drop'].forEach(eventName => {
+                dropzone.addEventListener(eventName, unhighlight, false);
+            });
+            
+            dropzone.addEventListener('drop', handleDrop, false);
+            
+            browseBtn.addEventListener('click', () => {
+                fileInput.click();
+            });
+            
+            fileInput.addEventListener('change', (e) => {
+                handleFiles(e.target.files);
+            });
+            
+            convertBtn.addEventListener('click', convertFiles);
+            convertMoreBtn.addEventListener('click', resetForm);
+            
+            // Copy session URL button
+            document.getElementById('copySessionBtn').addEventListener('click', function() {
+                const sessionUrlInput = document.getElementById('sessionUrl');
+                sessionUrlInput.select();
+                document.execCommand('copy');
+                this.textContent = 'Copied!';
+                setTimeout(() => {
+                    this.innerHTML = '<i class="bi bi-clipboard me-2"></i>Copy';
+                }, 2000);
+            });
+            
+            // Extend session time button
+            extendBtn.addEventListener('click', extendSession);
+        });
+    </script>
+</body>
+</html> 

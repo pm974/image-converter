@@ -1,0 +1,5 @@
+Flask==2.3.3
+pillow==10.0.0
+pillow-heif==0.13.0
+Werkzeug==2.3.7
+gunicorn==21.2.0 
