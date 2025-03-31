@@ -208,7 +208,7 @@
                             <div class="gallery">
                                 {% for file in files %}
                                     <div class="gallery-item">
-                                        <img src="{{ file.file_url }}" alt="{{ file.filename }}">
+                                        <img src="{{ file.file_url }}" alt="{{ file.filename }}" class="preview-image" data-file-url="{{ file.file_url }}">
                                         <div class="caption">
                                             <h6 class="text-truncate mb-0" title="{{ file.filename }}">
                                                 <i class="bi bi-file-earmark-image me-1"></i>
@@ -221,6 +221,11 @@
                                             </a>
                                             <button class="btn btn-sm btn-outline-secondary share-btn" data-share-url="{{ file.share_url }}">
                                                 <i class="bi bi-share me-1"></i>Share
+                                            </button>
+                                        </div>
+                                        <div class="action-row mt-1 d-flex px-2 pb-2">
+                                            <button class="btn btn-sm btn-outline-primary w-100 view-image-btn" data-file-url="{{ file.file_url }}">
+                                                <i class="bi bi-eye me-1"></i>View Image
                                             </button>
                                         </div>
                                         <div class="share-container p-2" style="display: none; background-color: #f8f9fa;">
@@ -252,119 +257,203 @@
             </div>
         </div>
     </div>
-    
+
+    <!-- Image Preview Modal -->
+    <div class="modal fade" id="imagePreviewModal" tabindex="-1" aria-labelledby="imagePreviewModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="imagePreviewModalLabel">Image Preview</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body text-center">
+                    <img id="previewImage" src="" alt="Preview" class="img-fluid">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <a id="downloadImageBtn" href="#" class="btn btn-primary">
+                        <i class="bi bi-download me-1"></i>Download
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
     <script>
-        // Countdown timer
-        var secondsLeft = parseInt("{{ seconds_left }}");
-        const countdownTimer = document.getElementById('countdown-timer');
-        const countdownIntervalId = setInterval(function() {
-            secondsLeft--;
+        document.addEventListener('DOMContentLoaded', function() {
+            // Format countdown timer
+            let secondsLeft = {{ seconds_left }};
+            const countdownTimer = document.getElementById('countdown-timer');
             
-            // Format the time
-            let formattedTime = '';
-            if (secondsLeft >= 3600) {
-                const hours = Math.floor(secondsLeft / 3600);
-                const minutes = Math.floor((secondsLeft % 3600) / 60);
-                formattedTime = hours + 'h ' + minutes + 'm';
-            } else if (secondsLeft >= 60) {
-                const minutes = Math.floor(secondsLeft / 60);
-                const seconds = secondsLeft % 60;
-                formattedTime = minutes + 'm ' + seconds + 's';
-            } else {
-                formattedTime = secondsLeft + 's';
-            }
-            
-            countdownTimer.textContent = formattedTime;
-            
-            // Add warning colors based on time left
-            if (secondsLeft <= 300) { // 5 minutes
-                countdownTimer.classList.add('expiration-warning');
-            }
-            
-            if (secondsLeft <= 0) {
-                clearInterval(countdownIntervalId);
-                window.location.href = '/'; // Redirect when expired
-            }
-        }, 1000);
-        
-        // Extend button
-        document.getElementById('extend-btn').addEventListener('click', function() {
-            const sessionId = '{{ session_id }}';
-            console.log('Extending session with ID:', sessionId);
-            
-            this.disabled = true;
-            this.innerHTML = '<i class="bi bi-hourglass-split me-1"></i> Extending...';
-            
-            fetch(`/extend/${sessionId}`, {
-                method: 'POST'
-            })
-            .then(response => {
-                console.log('Response status:', response.status);
-                return response.json();
-            })
-            .then(data => {
-                console.log('Extension response:', data);
-                if (data.status === 'success') {
-                    secondsLeft = data.seconds_left;
-                    document.querySelector('.mt-1.small').textContent = 'Links expire on: ' + data.expires_at;
-                    this.innerHTML = '<i class="bi bi-check-circle me-1"></i> Extended!';
-                    
-                    setTimeout(() => {
-                        this.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i> Extend Time';
-                        this.disabled = false;
-                    }, 2000);
-                } else {
-                    this.innerHTML = '<i class="bi bi-x-circle me-1"></i> Failed';
-                    alert('Could not extend: ' + (data.message || 'Unknown error'));
-                    
-                    setTimeout(() => {
-                        this.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i> Extend Time';
-                        this.disabled = false;
-                    }, 2000);
-                }
-            })
-            .catch(error => {
-                console.error('Error:', error);
-                this.innerHTML = '<i class="bi bi-x-circle me-1"></i> Failed';
-                alert('Error extending time. Please try again.');
+            function formatTime(seconds) {
+                const hours = Math.floor(seconds / 3600);
+                const minutes = Math.floor((seconds % 3600) / 60);
+                const remainingSeconds = seconds % 60;
                 
-                setTimeout(() => {
-                    this.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i> Extend Time';
-                    this.disabled = false;
-                }, 2000);
-            });
-        });
-    
-        // Copy session URL
-        document.getElementById('copy-session-btn').addEventListener('click', function() {
+                let timeString = '';
+                if (hours > 0) {
+                    timeString += `${hours}h `;
+                }
+                if (minutes > 0 || hours > 0) {
+                    timeString += `${minutes}m `;
+                }
+                timeString += `${remainingSeconds}s`;
+                
+                return timeString;
+            }
+            
+            // Update countdown every second
+            const countdownInterval = setInterval(function() {
+                if (secondsLeft <= 0) {
+                    countdownTimer.textContent = 'EXPIRED';
+                    clearInterval(countdownInterval);
+                    
+                    // Show expiration notice
+                    document.querySelectorAll('.gallery-item').forEach(item => {
+                        item.classList.add('opacity-50');
+                    });
+                    
+                    const expirationWarning = document.createElement('div');
+                    expirationWarning.className = 'alert alert-danger mt-3';
+                    expirationWarning.innerHTML = '<i class="bi bi-exclamation-triangle-fill me-2"></i><strong>Files have expired!</strong> Please convert your files again.';
+                    document.querySelector('.card-body').prepend(expirationWarning);
+                } else {
+                    countdownTimer.textContent = formatTime(secondsLeft);
+                    secondsLeft--;
+                }
+            }, 1000);
+            
+            // Copy session URL button
+            const copySessionBtn = document.getElementById('copy-session-btn');
             const sessionUrl = document.getElementById('session-url');
-            sessionUrl.select();
-            document.execCommand('copy');
-            this.innerHTML = '<i class="bi bi-check-circle me-1"></i> Copied!';
-            setTimeout(() => {
-                this.innerHTML = '<i class="bi bi-clipboard me-1"></i> Copy';
-            }, 2000);
-        });
-        
-        // Share buttons
-        document.querySelectorAll('.share-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                // Toggle share container
-                const shareContainer = this.closest('.gallery-item').querySelector('.share-container');
-                shareContainer.style.display = shareContainer.style.display === 'none' ? 'block' : 'none';
-            });
-        });
-        
-        // Copy link buttons
-        document.querySelectorAll('.copy-link-btn').forEach(btn => {
-            btn.addEventListener('click', function() {
-                const input = this.closest('.input-group').querySelector('.share-url-input');
-                input.select();
+            
+            copySessionBtn.addEventListener('click', function() {
+                sessionUrl.select();
                 document.execCommand('copy');
-                this.innerHTML = '<i class="bi bi-check-circle"></i>';
+                
+                copySessionBtn.innerHTML = '<i class="bi bi-check-lg me-1"></i>Copied!';
                 setTimeout(() => {
-                    this.innerHTML = '<i class="bi bi-clipboard"></i>';
+                    copySessionBtn.innerHTML = '<i class="bi bi-clipboard me-1"></i>Copy';
                 }, 2000);
+            });
+            
+            // Share buttons
+            document.querySelectorAll('.share-btn').forEach(button => {
+                button.addEventListener('click', function() {
+                    const shareContainer = this.closest('.gallery-item').querySelector('.share-container');
+                    if (shareContainer.style.display === 'none' || !shareContainer.style.display) {
+                        document.querySelectorAll('.share-container').forEach(container => {
+                            container.style.display = 'none';
+                        });
+                        shareContainer.style.display = 'block';
+                    } else {
+                        shareContainer.style.display = 'none';
+                    }
+                });
+            });
+            
+            // Copy share link buttons
+            document.querySelectorAll('.copy-link-btn').forEach(button => {
+                button.addEventListener('click', function() {
+                    const input = this.closest('.share-input').querySelector('input');
+                    input.select();
+                    document.execCommand('copy');
+                    
+                    this.innerHTML = '<i class="bi bi-check-lg"></i>';
+                    setTimeout(() => {
+                        this.innerHTML = '<i class="bi bi-clipboard"></i>';
+                    }, 2000);
+                });
+            });
+
+            // Extend button
+            document.getElementById('extend-btn').addEventListener('click', function() {
+                const sessionId = '{{ session_id }}';
+                console.log('Extending session with ID:', sessionId);
+                
+                this.disabled = true;
+                this.innerHTML = '<i class="bi bi-hourglass-split me-1"></i> Extending...';
+                
+                fetch(`/extend/${sessionId}`, {
+                    method: 'POST'
+                })
+                .then(response => {
+                    console.log('Response status:', response.status);
+                    return response.json();
+                })
+                .then(data => {
+                    console.log('Extension response:', data);
+                    if (data.status === 'success') {
+                        secondsLeft = data.seconds_left;
+                        document.querySelector('.mt-1.small').textContent = 'Links expire on: ' + data.expires_at;
+                        this.innerHTML = '<i class="bi bi-check-circle me-1"></i> Extended!';
+                        
+                        setTimeout(() => {
+                            this.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i> Extend Time';
+                            this.disabled = false;
+                        }, 2000);
+                    } else {
+                        this.innerHTML = '<i class="bi bi-x-circle me-1"></i> Failed';
+                        alert('Could not extend: ' + (data.message || 'Unknown error'));
+                        
+                        setTimeout(() => {
+                            this.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i> Extend Time';
+                            this.disabled = false;
+                        }, 2000);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    this.innerHTML = '<i class="bi bi-x-circle me-1"></i> Failed';
+                    alert('Error extending time. Please try again.');
+                    
+                    setTimeout(() => {
+                        this.innerHTML = '<i class="bi bi-arrow-clockwise me-1"></i> Extend Time';
+                        this.disabled = false;
+                    }, 2000);
+                });
+            });
+
+            // Image preview modal
+            const imagePreviewModal = document.getElementById('imagePreviewModal');
+            const imageModal = new bootstrap.Modal(imagePreviewModal);
+            const previewImage = document.getElementById('previewImage');
+            const downloadImageBtn = document.getElementById('downloadImageBtn');
+            const modalTitle = document.getElementById('imagePreviewModalLabel');
+
+            // Handle view image buttons
+            document.querySelectorAll('.view-image-btn').forEach(button => {
+                button.addEventListener('click', function() {
+                    const fileUrl = this.getAttribute('data-file-url');
+                    const filename = this.closest('.gallery-item').querySelector('h6').getAttribute('title');
+                    
+                    previewImage.src = fileUrl;
+                    modalTitle.textContent = filename;
+                    
+                    // Set download link
+                    const downloadUrl = this.closest('.gallery-item').querySelector('a[href*="download"]').getAttribute('href');
+                    downloadImageBtn.href = downloadUrl;
+                    
+                    imageModal.show();
+                });
+            });
+
+            // Also allow clicking on the image to preview
+            document.querySelectorAll('.preview-image').forEach(img => {
+                img.addEventListener('click', function() {
+                    const fileUrl = this.getAttribute('data-file-url');
+                    const filename = this.closest('.gallery-item').querySelector('h6').getAttribute('title');
+                    
+                    previewImage.src = fileUrl;
+                    modalTitle.textContent = filename;
+                    
+                    // Set download link
+                    const downloadUrl = this.closest('.gallery-item').querySelector('a[href*="download"]').getAttribute('href');
+                    downloadImageBtn.href = downloadUrl;
+                    
+                    imageModal.show();
+                });
             });
         });
     </script>

@@ -318,9 +318,14 @@
                             
                             <div class="d-flex justify-content-between mb-4">
                                 <h4>Converted Images</h4>
-                                <button id="downloadAllBtn" class="btn btn-primary">
-                                    <i class="bi bi-file-earmark-zip me-2"></i>Download All as ZIP
-                                </button>
+                                <div>
+                                    <a id="viewAllBtn" class="btn btn-outline-primary me-2">
+                                        <i class="bi bi-grid-3x3-gap-fill me-2"></i>View All
+                                    </a>
+                                    <button id="downloadAllBtn" class="btn btn-primary">
+                                        <i class="bi bi-file-earmark-zip me-2"></i>Download All as ZIP
+                                    </button>
+                                </div>
                             </div>
                             
                             <div id="resultItems" class="table-responsive">
@@ -496,6 +501,13 @@
                     // Add download all handler
                     downloadAllBtn.addEventListener('click', function() {
                         window.location.href = downloadAllUrl;
+                    });
+                    
+                    // Add view all handler
+                    const viewAllBtn = document.getElementById('viewAllBtn');
+                    viewAllBtn.href = responseData.session_url;
+                    viewAllBtn.addEventListener('click', function() {
+                        window.open(responseData.session_url, '_blank');
                     });
                     
                     // Hide loading, show results
