@@ -31,6 +31,8 @@ outputs/
 data/
 sessions.json
 build-and-push.sh
+git_push.py
+setup_server.sh
 
 # Mac OS
 .DS_Store

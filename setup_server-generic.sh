@@ -1,87 +1,85 @@
 #!/bin/bash
 
-# Generic server setup script for Image Converter
-# Copy this file to setup_server.sh and customize for your environment
+# Generic setup script for Image Converter server
+# This script helps set up and reset the Image Converter server environment
+# Usage: ./setup_server-generic.sh
 
-# Set terminal colors
-GREEN='\033[0;32m'
-YELLOW='\033[1;33m'
+# Note: This is a template file. Copy to setup_server.sh and customize for your environment.
+# The setup_server.sh file is gitignored to prevent committing your specific configuration.
+
+# Color definitions
 RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-# CUSTOMIZE THESE VARIABLES
-DATA_ROOT="/path/to/your/data"  # Root directory for all data
-APP_PORT="12346"                # Port to expose the application
-EXTERNAL_URL="https://your-domain.com"  # Public URL for the application
-DOCKER_IMAGE="image-convert:latest"  # Docker image to use
+# Configuration - Edit these variables in your setup_server.sh
+# Data directories
+DATA_DIR="./data"
+UPLOAD_DIR="./uploads"
+OUTPUT_DIR="./outputs"
 
-# Check if script is run as root or with sudo
-if [ "$EUID" -ne 0 ]; then
-  echo -e "${RED}Please run as root or with sudo${NC}"
-  exit 1
-fi
+# Docker settings
+DOCKER_IMAGE="your-docker-image:latest"
+CONTAINER_NAME="image-converter"
+PORT="12346"
+
+# Server URL - change to your actual server URL if needed
+EXTERNAL_URL="http://localhost:${PORT}"
 
 echo -e "${YELLOW}==== IMAGE CONVERTER SERVER SETUP AND RESET ====${NC}"
+echo
 
-# Create data directories with proper permissions
-echo -e "${YELLOW}Creating data directories...${NC}"
-mkdir -p ${DATA_ROOT}/image_uploads
-mkdir -p ${DATA_ROOT}/image_outputs
-mkdir -p ${DATA_ROOT}/image_data
+# Create directories if they don't exist
+echo -e "${BLUE}Creating directories...${NC}"
+mkdir -p "$DATA_DIR"
+mkdir -p "$UPLOAD_DIR"
+mkdir -p "$OUTPUT_DIR"
 
 # Set permissions
-echo -e "${YELLOW}Setting permissions...${NC}"
-chmod -R 777 ${DATA_ROOT}/image_uploads
-chmod -R 777 ${DATA_ROOT}/image_outputs
-chmod -R 777 ${DATA_ROOT}/image_data
+echo -e "${BLUE}Setting permissions...${NC}"
+chmod -R 755 "$DATA_DIR"
+chmod -R 755 "$UPLOAD_DIR"
+chmod -R 755 "$OUTPUT_DIR"
 
-# Pull latest image
-echo -e "${YELLOW}Pulling latest Docker image...${NC}"
-docker pull ${DOCKER_IMAGE}
+# Stop and remove any existing container
+echo -e "${BLUE}Stopping and removing existing container...${NC}"
+docker stop "$CONTAINER_NAME" 2>/dev/null || true
+docker rm "$CONTAINER_NAME" 2>/dev/null || true
 
-# Stop and remove existing container
-echo -e "${YELLOW}Stopping existing container...${NC}"
-docker stop image-convert || true
-echo -e "${YELLOW}Removing container...${NC}"
-docker rm image-convert || true
+# Pull the latest image
+echo -e "${BLUE}Pulling latest Docker image...${NC}"
+docker pull "$DOCKER_IMAGE"
 
-# Check if docker-compose.yml exists
-COMPOSE_FILE="${DATA_ROOT}/docker-compose.yml"
-if [ ! -f "$COMPOSE_FILE" ]; then
-  echo -e "${YELLOW}Creating docker-compose.yml file...${NC}"
-  cat > "$COMPOSE_FILE" << EOF
-services:
-  image-convert:
-    image: ${DOCKER_IMAGE}
-    container_name: image-convert
-    pull_policy: always
-    ports:
-      - "${APP_PORT}:5000"
-    volumes:
-      - ${DATA_ROOT}/image_uploads:/app/uploads
-      - ${DATA_ROOT}/image_outputs:/app/outputs
-      - ${DATA_ROOT}/image_data:/app/data
-    restart: unless-stopped
-    environment:
-      - EXTERNAL_URL=${EXTERNAL_URL}
-      - OUTPUT_DIR=/app/outputs
-      - SESSION_FILE=/app/data/sessions.json
-EOF
-  echo -e "${GREEN}Created docker-compose.yml${NC}"
+# Start the container with the mounted volumes
+echo -e "${BLUE}Starting container...${NC}"
+docker run -d \
+  --name "$CONTAINER_NAME" \
+  -p "$PORT:5000" \
+  -v "$(pwd)/$DATA_DIR:/app/data" \
+  -v "$(pwd)/$UPLOAD_DIR:/app/uploads" \
+  -v "$(pwd)/$OUTPUT_DIR:/app/outputs" \
+  -e "UPLOAD_DIR=/app/uploads" \
+  -e "OUTPUT_DIR=/app/outputs" \
+  -e "SESSION_FILE=/app/data/sessions.json" \
+  -e "EXTERNAL_URL=$EXTERNAL_URL" \
+  "$DOCKER_IMAGE"
+
+# Check if container is running
+if [ "$(docker ps -q -f name=$CONTAINER_NAME)" ]; then
+    echo -e "${GREEN}✅ Setup complete! The Image Converter server is now running.${NC}"
+    echo -e "${GREEN}Access the application at: $EXTERNAL_URL${NC}"
+else
+    echo -e "${RED}❌ Container failed to start. Check Docker logs for more information.${NC}"
+    echo -e "${YELLOW}Docker logs:${NC}"
+    docker logs "$CONTAINER_NAME"
+    exit 1
 fi
 
-# Start the container with docker-compose
-echo -e "${YELLOW}Starting container with docker-compose...${NC}"
-cd ${DATA_ROOT} && docker-compose up -d
-
-# Wait for container to start
-echo -e "${YELLOW}Waiting for container to start (10 seconds)...${NC}"
-sleep 10
-
-# Check logs
-echo -e "${YELLOW}Container logs:${NC}"
-docker logs image-convert
-
-echo -e "${GREEN}==== SETUP COMPLETE ====${NC}"
-echo -e "The application should be accessible at: ${EXTERNAL_URL}"
-echo -e "If you encounter issues, check the logs with: docker logs image-convert" 
+echo
+echo -e "${BLUE}Container details:${NC}"
+docker ps -f name="$CONTAINER_NAME"
+echo
+echo -e "${YELLOW}To stop the server:${NC} docker stop $CONTAINER_NAME"
+echo -e "${YELLOW}To view logs:${NC} docker logs $CONTAINER_NAME" 
