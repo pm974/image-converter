@@ -9,7 +9,6 @@ import pillow_heif
 import threading
 import datetime
 import json
-import subprocess
 
 # Setup Flask app
 app = Flask(__name__)
@@ -34,10 +33,6 @@ def get_supported_formats():
     
     # Add HEIC format since we have pillow_heif
     readable_formats['HEIC'] = 'HEIC'
-    
-    # Remove EPS from output formats (problematic format)
-    if 'EPS' in writable_formats:
-        del writable_formats['EPS']
     
     # Sort formats alphabetically
     sorted_input = sorted(readable_formats.keys())
@@ -219,103 +214,6 @@ def cleanup_session(session_id):
     
     print(f"[DEBUG] Cleaned up session: {session_id}")
 
-def convert_eps_with_ghostscript(input_path, output_path, output_format):
-    """
-    Convert EPS file to other formats using Ghostscript
-    """
-    try:
-        # Verify input file exists and is readable
-        if not os.path.exists(input_path):
-            raise Exception(f"Input file not found: {input_path}")
-        
-        # Ensure output directory exists
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        
-        # For other formats, use a simplified approach
-        dpi = 300  # Use high DPI for quality
-        device = 'png16m' if output_format.lower() == 'png' else 'jpeg'
-        temp_path = f"{output_path}.temp.png"
-        
-        # Try to determine the Ghostscript version to use appropriate device
-        ps_device = 'pswrite'  # Default for older versions
-        try:
-            gs_version_result = subprocess.run(['gs', '--version'], capture_output=True, text=True)
-            if gs_version_result.returncode == 0:
-                version_str = gs_version_result.stdout.strip()
-                print(f"[DEBUG] Ghostscript version: {version_str}")
-                # Parse version
-                try:
-                    version_parts = [int(part) for part in version_str.split('.')]
-                    if len(version_parts) >= 2:
-                        # eps2write introduced in GS 9.21, pswrite deprecated before that
-                        if version_parts[0] > 9 or (version_parts[0] == 9 and version_parts[1] >= 21):
-                            ps_device = 'eps2write'
-                        elif version_parts[0] >= 9:
-                            ps_device = 'epswrite'
-                except ValueError:
-                    print(f"[DEBUG] Could not parse GS version, using {ps_device}")
-        except Exception as e:
-            print(f"[DEBUG] Error checking GS version: {str(e)}, using {ps_device}")
-        
-        # Use simplified settings for broader compatibility
-        cmd = [
-            'gs', '-q', '-dNOPAUSE', '-dBATCH', '-dSAFER',
-            f'-sDEVICE={device}',
-            f'-r{dpi}',
-            f'-sOutputFile={temp_path}',
-            input_path
-        ]
-        
-        # Add JPEG-specific settings if converting to JPEG
-        if device == 'jpeg':
-            cmd.extend([
-                '-dJPEGQ=95',  # High JPEG quality
-            ])
-        
-        # Run Ghostscript with error capture
-        print(f"[DEBUG] Running GS command: {' '.join(cmd)}")
-        result = subprocess.run(cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            print(f"[DEBUG] Ghostscript stderr: {result.stderr}")
-            print(f"[DEBUG] Ghostscript stdout: {result.stdout}")
-            raise Exception(f"Ghostscript failed: {result.stderr}")
-        
-        if not os.path.exists(temp_path):
-            raise Exception(f"Ghostscript did not create output file: {temp_path}")
-        
-        # Convert the high-quality temp file to final format using Pillow
-        try:
-            with Image.open(temp_path) as img:
-                if output_format.lower() in ['jpeg', 'jpg']:
-                    img = img.convert('RGB')
-                    # Use high-quality JPEG settings
-                    img.save(output_path, output_format.upper(), quality=95, optimize=True)
-                else:
-                    img.save(output_path, output_format.upper())
-        except Exception as e:
-            raise Exception(f"Failed to convert temporary file to final format: {str(e)}")
-        finally:
-            # Clean up temp file
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
-        
-        # Verify the final output file exists
-        if not os.path.exists(output_path):
-            raise Exception("Failed to create final output file")
-        
-        return True
-        
-    except subprocess.CalledProcessError as e:
-        print(f"[DEBUG] Ghostscript conversion failed: {str(e)}")
-        if hasattr(e, 'stderr'):
-            print(f"[DEBUG] Ghostscript stderr: {e.stderr}")
-        if hasattr(e, 'stdout'):
-            print(f"[DEBUG] Ghostscript stdout: {e.stdout}")
-        return False
-    except Exception as e:
-        print(f"[DEBUG] Error in EPS conversion: {str(e)}")
-        return False
-
 @app.route('/')
 def index():
     print("Root route accessed!")
@@ -337,10 +235,6 @@ def upload_file():
         if not output_format:
             return jsonify({'error': 'No output format specified'}), 400
         
-        # Extra validation to explicitly block EPS output format
-        if output_format.lower() == 'eps':
-            return jsonify({'error': 'EPS output format is not supported'}), 400
-            
         # Validate output format
         if output_format.upper() not in SUPPORTED_FORMATS['output_formats']:
             return jsonify({'error': f'Unsupported output format: {output_format}'}), 400
@@ -354,6 +248,7 @@ def upload_file():
         print(f"[DEBUG] Created session directory: {session_output_dir}")
         print(f"[DEBUG] Converting to format: {output_format}")
         print(f"[DEBUG] Number of files: {len(files)}")
+        print(f"[DEBUG] Original sizes will be preserved")
         
         # Set expiration time
         expiry_time = time.time() + app.config['EXPIRATION_TIME']
@@ -384,82 +279,45 @@ def upload_file():
                     
                     conversion_success = False
                     
-                    # Special handling for EPS files as input (only support converting from EPS to other formats)
-                    if filename.lower().endswith('.eps'):
-                        print(f"[DEBUG] Processing EPS file: {filename}")
-                        success = convert_eps_with_ghostscript(temp_path, output_path, output_format)
-                        print(f"[DEBUG] EPS conversion result: {success}")
-                        
-                        # If conversion failed, try direct PIL conversion as fallback
-                        if not success:
-                            print("[DEBUG] EPS conversion failed, attempting PIL fallback")
-                            try:
-                                # Try direct PIL conversion which is more limited but more compatible
-                                image = Image.open(temp_path)
-                                print(f"[DEBUG] PIL opened EPS file, mode={image.mode}, size={image.size}")
-                                
-                                # Convert to RGB if needed for certain output formats
-                                if output_format.lower() in ['jpeg', 'jpg'] and image.mode != 'RGB':
-                                    image = image.convert('RGB')
-                                    print(f"[DEBUG] Converted to RGB mode")
-                                
-                                # Handle transparency for PNG
-                                if output_format.lower() == 'png' and image.mode not in ['RGBA', 'RGB']:
-                                    image = image.convert('RGBA')
-                                    print(f"[DEBUG] Converted to RGBA mode for PNG")
-                                
-                                # Save with high quality
-                                if output_format.lower() in ['jpeg', 'jpg']:
-                                    image.save(output_path, output_format.upper(), quality=95)
-                                else:
-                                    image.save(output_path, output_format.upper())
-                                
-                                print(f"[DEBUG] PIL saved output to {output_path}")    
-                                success = True
-                                print("[DEBUG] PIL fallback succeeded")
-                            except Exception as e:
-                                print(f"[DEBUG] PIL fallback failed: {str(e)}")
-                                success = False
-                                    
-                        if not success:
-                            raise Exception("Failed to convert EPS file - all conversion methods failed")
-                            
-                        conversion_success = success
-                    else:
-                        # Handle HEIC files
-                        if filename.lower().endswith('.heic'):
-                            try:
-                                heif_file = pillow_heif.read_heif(temp_path)
-                                image = Image.frombytes(
-                                    heif_file.mode,
-                                    heif_file.size,
-                                    heif_file.data,
-                                    "raw",
-                                )
-                            except Exception as e:
-                                raise Exception(f"Failed to read HEIC file: {str(e)}")
-                        else:
-                            # Use regular PIL for other formats
-                            try:
-                                image = Image.open(temp_path)
-                            except Exception as e:
-                                raise Exception(f"Failed to open image file: {str(e)}")
-                        
-                        # Convert to RGB if needed for certain output formats
-                        if output_format.lower() in ['jpeg', 'jpg'] and image.mode != 'RGB':
-                            image = image.convert('RGB')
-                        
-                        # Handle transparency for PNG
-                        if output_format.lower() == 'png' and image.mode not in ['RGBA', 'RGB']:
-                            image = image.convert('RGBA')
-                        
-                        # Save the image with specified format
+                    # Handle HEIC files
+                    if filename.lower().endswith('.heic'):
                         try:
-                            image.save(output_path, output_format.upper())
-                            conversion_success = True
+                            heif_file = pillow_heif.read_heif(temp_path)
+                            image = Image.frombytes(
+                                heif_file.mode,
+                                heif_file.size,
+                                heif_file.data,
+                                "raw",
+                            )
+                            original_size = image.size
+                            print(f"[DEBUG] HEIC image original size: {original_size}")
                         except Exception as e:
-                            raise Exception(f"Failed to save converted image: {str(e)}")
+                            raise Exception(f"Failed to read HEIC file: {str(e)}")
+                    else:
+                        # Use regular PIL for other formats
+                        try:
+                            image = Image.open(temp_path)
+                            original_size = image.size
+                            print(f"[DEBUG] Original image size: {original_size}")
+                        except Exception as e:
+                            raise Exception(f"Failed to open image file: {str(e)}")
                     
+                    # Convert to RGB if needed for certain output formats
+                    if output_format.lower() in ['jpeg', 'jpg'] and image.mode != 'RGB':
+                        image = image.convert('RGB')
+                    
+                    # Handle transparency for PNG
+                    if output_format.lower() == 'png' and image.mode not in ['RGBA', 'RGB']:
+                        image = image.convert('RGBA')
+                    
+                    # Save the image with specified format - preserving original dimensions
+                    try:
+                        image.save(output_path, output_format.upper())
+                        print(f"[DEBUG] Preserved original dimensions: {original_size}")
+                        conversion_success = True
+                    except Exception as e:
+                        raise Exception(f"Failed to save converted image: {str(e)}")
+                
                     if not os.path.exists(output_path):
                         raise Exception("Conversion completed but output file not found")
                     
@@ -897,51 +755,6 @@ def get_formats():
     """Return supported formats as JSON"""
     return jsonify(SUPPORTED_FORMATS)
 
-@app.route('/api/check-gs')
-def check_ghostscript():
-    """Check if Ghostscript is available"""
-    try:
-        result = subprocess.run(['gs', '--version'], capture_output=True, text=True)
-        if result.returncode == 0:
-            return jsonify({
-                'status': 'success',
-                'version': result.stdout.strip(),
-                'message': 'Ghostscript is available'
-            })
-        else:
-            return jsonify({
-                'status': 'error',
-                'message': 'Ghostscript command returned error',
-                'stderr': result.stderr
-            }), 500
-    except Exception as e:
-        return jsonify({
-            'status': 'error',
-            'message': f'Failed to check Ghostscript: {str(e)}'
-        }), 500
-
-# Error handlers
-@app.errorhandler(413)
-def too_large(error):
-    return jsonify({'error': 'File too large (max 50MB)'}), 413
-
-@app.errorhandler(404)
-def page_not_found(error):
-    print(f"404 error: {request.path} - Referrer: {request.referrer}")
-    if request.path == '/':
-        print("Root path was not found! Make sure index.html is in templates directory.")
-        try:
-            print(f"Templates directory contents: {os.listdir('templates')}")
-        except Exception as e:
-            print(f"Error listing templates: {str(e)}")
-    
-    return render_template('error.html', message=f"Page not found: {request.path}"), 404
-
-# Add static file route for SVG and other static assets
-@app.route('/static/<path:filename>')
-def serve_static(filename):
-    return send_from_directory('static', filename)
-
 @app.route('/debug/session/<session_id>')
 def debug_session(session_id):
     """Debug endpoint to check session information"""
@@ -996,6 +809,28 @@ def debug_session(session_id):
 
 # Enable debug mode for testing
 app.debug = True
+
+# Error handlers
+@app.errorhandler(413)
+def too_large(error):
+    return jsonify({'error': 'File too large (max 50MB)'}), 413
+
+@app.errorhandler(404)
+def page_not_found(error):
+    print(f"404 error: {request.path} - Referrer: {request.referrer}")
+    if request.path == '/':
+        print("Root path was not found! Make sure index.html is in templates directory.")
+        try:
+            print(f"Templates directory contents: {os.listdir('templates')}")
+        except Exception as e:
+            print(f"Error listing templates: {str(e)}")
+    
+    return render_template('error.html', message=f"Page not found: {request.path}"), 404
+
+# Add static file route for SVG and other static assets
+@app.route('/static/<path:filename>')
+def serve_static(filename):
+    return send_from_directory('static', filename)
 
 if __name__ == '__main__':
     # Start background cleanup thread
