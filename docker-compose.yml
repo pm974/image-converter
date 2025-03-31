@@ -8,12 +8,12 @@ services:
     ports:
       - "12346:5000"
     volumes:
-      - ./uploads:/app/uploads
-      - ./outputs:/app/outputs
-      - ./data:/app/data
+      - /mnt/fastlane/docker/image-convert/image_uploads:/app/uploads
+      - /mnt/fastlane/docker/image-convert/image_outputs:/app/outputs
+      - /mnt/fastlane/docker/image-convert/image_data:/app/data
     restart: unless-stopped
     environment:
-      - EXTERNAL_URL=http://localhost:12346
+      - EXTERNAL_URL=https://image-convert.cobaltfilms.be
       - OUTPUT_DIR=/app/outputs
       - SESSION_FILE=/app/data/sessions.json
       - EXPIRATION_TIME=3600 

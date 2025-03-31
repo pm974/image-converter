@@ -2,13 +2,14 @@ from flask import Flask, render_template, request, send_from_directory, jsonify,
 import os
 import uuid
 import time
+import shutil
 from pathlib import Path
 from PIL import Image
 import pillow_heif
-import shutil
 import threading
 import datetime
 import json
+import subprocess
 
 # Setup Flask app
 app = Flask(__name__)
@@ -33,6 +34,10 @@ def get_supported_formats():
     
     # Add HEIC format since we have pillow_heif
     readable_formats['HEIC'] = 'HEIC'
+    
+    # Remove EPS from output formats (problematic format)
+    if 'EPS' in writable_formats:
+        del writable_formats['EPS']
     
     # Sort formats alphabetically
     sorted_input = sorted(readable_formats.keys())
@@ -214,6 +219,103 @@ def cleanup_session(session_id):
     
     print(f"[DEBUG] Cleaned up session: {session_id}")
 
+def convert_eps_with_ghostscript(input_path, output_path, output_format):
+    """
+    Convert EPS file to other formats using Ghostscript
+    """
+    try:
+        # Verify input file exists and is readable
+        if not os.path.exists(input_path):
+            raise Exception(f"Input file not found: {input_path}")
+        
+        # Ensure output directory exists
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        
+        # For other formats, use a simplified approach
+        dpi = 300  # Use high DPI for quality
+        device = 'png16m' if output_format.lower() == 'png' else 'jpeg'
+        temp_path = f"{output_path}.temp.png"
+        
+        # Try to determine the Ghostscript version to use appropriate device
+        ps_device = 'pswrite'  # Default for older versions
+        try:
+            gs_version_result = subprocess.run(['gs', '--version'], capture_output=True, text=True)
+            if gs_version_result.returncode == 0:
+                version_str = gs_version_result.stdout.strip()
+                print(f"[DEBUG] Ghostscript version: {version_str}")
+                # Parse version
+                try:
+                    version_parts = [int(part) for part in version_str.split('.')]
+                    if len(version_parts) >= 2:
+                        # eps2write introduced in GS 9.21, pswrite deprecated before that
+                        if version_parts[0] > 9 or (version_parts[0] == 9 and version_parts[1] >= 21):
+                            ps_device = 'eps2write'
+                        elif version_parts[0] >= 9:
+                            ps_device = 'epswrite'
+                except ValueError:
+                    print(f"[DEBUG] Could not parse GS version, using {ps_device}")
+        except Exception as e:
+            print(f"[DEBUG] Error checking GS version: {str(e)}, using {ps_device}")
+        
+        # Use simplified settings for broader compatibility
+        cmd = [
+            'gs', '-q', '-dNOPAUSE', '-dBATCH', '-dSAFER',
+            f'-sDEVICE={device}',
+            f'-r{dpi}',
+            f'-sOutputFile={temp_path}',
+            input_path
+        ]
+        
+        # Add JPEG-specific settings if converting to JPEG
+        if device == 'jpeg':
+            cmd.extend([
+                '-dJPEGQ=95',  # High JPEG quality
+            ])
+        
+        # Run Ghostscript with error capture
+        print(f"[DEBUG] Running GS command: {' '.join(cmd)}")
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"[DEBUG] Ghostscript stderr: {result.stderr}")
+            print(f"[DEBUG] Ghostscript stdout: {result.stdout}")
+            raise Exception(f"Ghostscript failed: {result.stderr}")
+        
+        if not os.path.exists(temp_path):
+            raise Exception(f"Ghostscript did not create output file: {temp_path}")
+        
+        # Convert the high-quality temp file to final format using Pillow
+        try:
+            with Image.open(temp_path) as img:
+                if output_format.lower() in ['jpeg', 'jpg']:
+                    img = img.convert('RGB')
+                    # Use high-quality JPEG settings
+                    img.save(output_path, output_format.upper(), quality=95, optimize=True)
+                else:
+                    img.save(output_path, output_format.upper())
+        except Exception as e:
+            raise Exception(f"Failed to convert temporary file to final format: {str(e)}")
+        finally:
+            # Clean up temp file
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+        
+        # Verify the final output file exists
+        if not os.path.exists(output_path):
+            raise Exception("Failed to create final output file")
+        
+        return True
+        
+    except subprocess.CalledProcessError as e:
+        print(f"[DEBUG] Ghostscript conversion failed: {str(e)}")
+        if hasattr(e, 'stderr'):
+            print(f"[DEBUG] Ghostscript stderr: {e.stderr}")
+        if hasattr(e, 'stdout'):
+            print(f"[DEBUG] Ghostscript stdout: {e.stdout}")
+        return False
+    except Exception as e:
+        print(f"[DEBUG] Error in EPS conversion: {str(e)}")
+        return False
+
 @app.route('/')
 def index():
     print("Root route accessed!")
@@ -223,136 +325,227 @@ def index():
 
 @app.route('/upload', methods=['POST'])
 def upload_file():
-    if 'files[]' not in request.files:
-        return jsonify({'error': 'No files part'}), 400
-    
-    files = request.files.getlist('files[]')
-    output_format = request.form.get('format', 'jpeg').lower()
-    
-    if not files or files[0].filename == '':
-        return jsonify({'error': 'No files selected'}), 400
-    
-    # Create unique session ID for this batch
-    session_id = str(uuid.uuid4())
-    print(f"[DEBUG] Creating new session: {session_id}")
-    
-    session_output_dir = os.path.join(app.config['OUTPUT_FOLDER'], session_id)
-    os.makedirs(session_output_dir, exist_ok=True)
-    
-    # Track session with expiration time and initialize files list
-    expiry_time = time.time() + app.config['EXPIRATION_TIME']
-    sessions[session_id] = {
-        'created_at': expiry_time,
-        'files': []
-    }
-    
-    print(f"[DEBUG] Session {session_id} will expire at {datetime.datetime.fromtimestamp(expiry_time)}")
-    print(f"[DEBUG] Current active sessions: {list(sessions.keys())}")
-    
-    results = []
-    
-    for file in files:
-        if file:
-            # Save uploaded file temporarily
-            filename = file.filename
-            temp_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            file.save(temp_path)
+    try:
+        if 'files[]' not in request.files:
+            return jsonify({'error': 'No files provided'}), 400
+        
+        files = request.files.getlist('files[]')
+        if not files or files[0].filename == '':
+            return jsonify({'error': 'No files selected'}), 400
             
-            try:
-                # Check if the file is HEIC format
-                if filename.lower().endswith('.heic'):
-                    # Use pillow_heif for HEIC files
-                    heif_file = pillow_heif.read_heif(temp_path)
-                    image = Image.frombytes(
-                        heif_file.mode,
-                        heif_file.size,
-                        heif_file.data,
-                        "raw",
-                    )
-                else:
-                    # Use regular PIL for other formats
-                    image = Image.open(temp_path)
+        output_format = request.form.get('format', 'JPEG')
+        if not output_format:
+            return jsonify({'error': 'No output format specified'}), 400
+        
+        # Extra validation to explicitly block EPS output format
+        if output_format.lower() == 'eps':
+            return jsonify({'error': 'EPS output format is not supported'}), 400
+            
+        # Validate output format
+        if output_format.upper() not in SUPPORTED_FORMATS['output_formats']:
+            return jsonify({'error': f'Unsupported output format: {output_format}'}), 400
+        
+        # Create session
+        session_id = str(uuid.uuid4())
+        session_output_dir = os.path.join(app.config['OUTPUT_FOLDER'], session_id)
+        os.makedirs(session_output_dir, exist_ok=True)
+        
+        # Print detailed debug info
+        print(f"[DEBUG] Created session directory: {session_output_dir}")
+        print(f"[DEBUG] Converting to format: {output_format}")
+        print(f"[DEBUG] Number of files: {len(files)}")
+        
+        # Set expiration time
+        expiry_time = time.time() + app.config['EXPIRATION_TIME']
+        sessions[session_id] = {
+            'created_at': expiry_time,
+            'files': []
+        }
+        
+        results = []
+        conversion_errors = []
+        
+        for file in files:
+            if file and file.filename:
+                # Save uploaded file temporarily
+                filename = file.filename
+                print(f"[DEBUG] Processing file: {filename}")
+                temp_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
                 
-                # Convert to RGB if needed for certain output formats
-                if output_format.lower() in ['jpeg', 'jpg'] and image.mode != 'RGB':
-                    image = image.convert('RGB')
-                
-                # Handle transparency for PNG
-                if output_format.lower() == 'png' and image.mode not in ['RGBA', 'RGB']:
-                    image = image.convert('RGBA')
-                
-                # Generate output path with format extension
-                file_stem = Path(filename).stem
-                output_filename = f"{file_stem}.{output_format}"
-                output_path = os.path.join(session_output_dir, output_filename)
-                
-                # Save the image with specified format
-                image.save(output_path, output_format.upper())
-                print(f"[DEBUG] Converted and saved: {output_path}")
-                
-                # Generate URLs
-                share_url = url_for('share_file', session_id=session_id, filename=output_filename, _external=True)
-                download_url = url_for('download_file', session_id=session_id, filename=output_filename)
-                print(f"[DEBUG] Share URL: {share_url}")
-                
-                # Track file in session
-                file_info = {
-                    'original_filename': filename,
-                    'converted_filename': output_filename,
-                    'conversion_time': time.time()
-                }
-                sessions[session_id]['files'].append(file_info)
-                
-                results.append({
-                    'original': filename,
-                    'converted': output_filename,
-                    'status': 'success',
-                    'download_url': download_url,
-                    'share_url': share_url
-                })
-                
-            except Exception as e:
-                print(f"[DEBUG] Error converting {filename}: {str(e)}")
-                results.append({
-                    'original': filename,
-                    'status': 'error',
-                    'error': str(e)
-                })
-            finally:
-                # Clean up temp file
-                if os.path.exists(temp_path):
-                    os.remove(temp_path)
-    
-    # Save session data after all files processed
-    save_sessions()
-    
-    # If all conversions failed, remove empty session directory
-    if all(result['status'] == 'error' for result in results):
-        shutil.rmtree(session_output_dir, ignore_errors=True)
-        if session_id in sessions:
-            del sessions[session_id]
-            save_sessions()
-        return jsonify({'error': 'All conversions failed', 'details': results}), 500
-    
-    # Generate session URL
-    session_url = url_for('view_session', session_id=session_id, _external=True)
-    print(f"[DEBUG] Session URL: {session_url}")
-    
-    # Calculate expiration time for display
-    expiry_datetime = datetime.datetime.fromtimestamp(expiry_time)
-    expiry_formatted = expiry_datetime.strftime('%Y-%m-%d %H:%M:%S')
-    
-    response_data = {
-        'session_id': session_id,
-        'results': results,
-        'download_all_url': url_for('download_all', session_id=session_id),
-        'session_url': session_url,
-        'expires_at': expiry_formatted,
-        'expiration_seconds': app.config['EXPIRATION_TIME']
-    }
-    
-    print(f"[DEBUG] Upload successful for session {session_id}")
-    return jsonify(response_data)
+                try:
+                    file.save(temp_path)
+                    print(f"[DEBUG] Saved temp file: {temp_path}")
+                    
+                    # Generate output path with format extension
+                    file_stem = Path(filename).stem
+                    output_filename = f"{file_stem}.{output_format.lower()}"
+                    output_path = os.path.join(session_output_dir, output_filename)
+                    print(f"[DEBUG] Output path: {output_path}")
+                    
+                    conversion_success = False
+                    
+                    # Special handling for EPS files as input (only support converting from EPS to other formats)
+                    if filename.lower().endswith('.eps'):
+                        print(f"[DEBUG] Processing EPS file: {filename}")
+                        success = convert_eps_with_ghostscript(temp_path, output_path, output_format)
+                        print(f"[DEBUG] EPS conversion result: {success}")
+                        
+                        # If conversion failed, try direct PIL conversion as fallback
+                        if not success:
+                            print("[DEBUG] EPS conversion failed, attempting PIL fallback")
+                            try:
+                                # Try direct PIL conversion which is more limited but more compatible
+                                image = Image.open(temp_path)
+                                print(f"[DEBUG] PIL opened EPS file, mode={image.mode}, size={image.size}")
+                                
+                                # Convert to RGB if needed for certain output formats
+                                if output_format.lower() in ['jpeg', 'jpg'] and image.mode != 'RGB':
+                                    image = image.convert('RGB')
+                                    print(f"[DEBUG] Converted to RGB mode")
+                                
+                                # Handle transparency for PNG
+                                if output_format.lower() == 'png' and image.mode not in ['RGBA', 'RGB']:
+                                    image = image.convert('RGBA')
+                                    print(f"[DEBUG] Converted to RGBA mode for PNG")
+                                
+                                # Save with high quality
+                                if output_format.lower() in ['jpeg', 'jpg']:
+                                    image.save(output_path, output_format.upper(), quality=95)
+                                else:
+                                    image.save(output_path, output_format.upper())
+                                
+                                print(f"[DEBUG] PIL saved output to {output_path}")    
+                                success = True
+                                print("[DEBUG] PIL fallback succeeded")
+                            except Exception as e:
+                                print(f"[DEBUG] PIL fallback failed: {str(e)}")
+                                success = False
+                                    
+                        if not success:
+                            raise Exception("Failed to convert EPS file - all conversion methods failed")
+                            
+                        conversion_success = success
+                    else:
+                        # Handle HEIC files
+                        if filename.lower().endswith('.heic'):
+                            try:
+                                heif_file = pillow_heif.read_heif(temp_path)
+                                image = Image.frombytes(
+                                    heif_file.mode,
+                                    heif_file.size,
+                                    heif_file.data,
+                                    "raw",
+                                )
+                            except Exception as e:
+                                raise Exception(f"Failed to read HEIC file: {str(e)}")
+                        else:
+                            # Use regular PIL for other formats
+                            try:
+                                image = Image.open(temp_path)
+                            except Exception as e:
+                                raise Exception(f"Failed to open image file: {str(e)}")
+                        
+                        # Convert to RGB if needed for certain output formats
+                        if output_format.lower() in ['jpeg', 'jpg'] and image.mode != 'RGB':
+                            image = image.convert('RGB')
+                        
+                        # Handle transparency for PNG
+                        if output_format.lower() == 'png' and image.mode not in ['RGBA', 'RGB']:
+                            image = image.convert('RGBA')
+                        
+                        # Save the image with specified format
+                        try:
+                            image.save(output_path, output_format.upper())
+                            conversion_success = True
+                        except Exception as e:
+                            raise Exception(f"Failed to save converted image: {str(e)}")
+                    
+                    if not os.path.exists(output_path):
+                        raise Exception("Conversion completed but output file not found")
+                    
+                    print(f"[DEBUG] Converted and saved: {output_path}")
+                    
+                    # Generate URLs
+                    share_url = url_for('share_file', session_id=session_id, filename=output_filename, _external=True)
+                    download_url = url_for('download_file', session_id=session_id, filename=output_filename)
+                    print(f"[DEBUG] Share URL: {share_url}")
+                    
+                    # Track file in session
+                    file_info = {
+                        'original_filename': filename,
+                        'converted_filename': output_filename,
+                        'conversion_time': time.time()
+                    }
+                    sessions[session_id]['files'].append(file_info)
+                    
+                    results.append({
+                        'original': filename,
+                        'converted': output_filename,
+                        'status': 'success',
+                        'download_url': download_url,
+                        'share_url': share_url
+                    })
+                    
+                except Exception as e:
+                    error_msg = str(e)
+                    print(f"[DEBUG] Error converting {filename}: {error_msg}")
+                    conversion_errors.append(error_msg)
+                    results.append({
+                        'original': filename,
+                        'status': 'error',
+                        'error': error_msg
+                    })
+                finally:
+                    # Clean up temp file
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
+        
+        # Save session data after all files processed
+        save_sessions()
+        
+        # If all conversions failed, remove empty session directory
+        if all(result['status'] == 'error' for result in results):
+            shutil.rmtree(session_output_dir, ignore_errors=True)
+            if session_id in sessions:
+                del sessions[session_id]
+                save_sessions()
+            error_details = '; '.join(conversion_errors) if conversion_errors else 'Unknown error'
+            return jsonify({
+                'error': 'All conversions failed',
+                'details': results,
+                'message': error_details
+            }), 500
+        
+        # Generate session URL
+        session_url = url_for('view_session', session_id=session_id, _external=True)
+        print(f"[DEBUG] Session URL: {session_url}")
+        
+        # Calculate expiration time for display
+        expiry_datetime = datetime.datetime.fromtimestamp(expiry_time)
+        expiry_formatted = expiry_datetime.strftime('%Y-%m-%d %H:%M:%S')
+        
+        response_data = {
+            'session_id': session_id,
+            'results': results,
+            'download_all_url': url_for('download_all', session_id=session_id),
+            'session_url': session_url,
+            'expires_at': expiry_formatted,
+            'expiration_seconds': app.config['EXPIRATION_TIME']
+        }
+        
+        # If there were any errors but not all failed, include them in the response
+        if conversion_errors:
+            response_data['warnings'] = conversion_errors
+        
+        print(f"[DEBUG] Upload successful for session {session_id}")
+        return jsonify(response_data)
+        
+    except Exception as e:
+        print(f"[DEBUG] Unexpected error in upload: {str(e)}")
+        return jsonify({
+            'error': 'Server error',
+            'message': str(e)
+        }), 500
 
 @app.route('/check-session/<session_id>')
 def check_session(session_id):
@@ -703,6 +896,29 @@ def extend_session(session_id):
 def get_formats():
     """Return supported formats as JSON"""
     return jsonify(SUPPORTED_FORMATS)
+
+@app.route('/api/check-gs')
+def check_ghostscript():
+    """Check if Ghostscript is available"""
+    try:
+        result = subprocess.run(['gs', '--version'], capture_output=True, text=True)
+        if result.returncode == 0:
+            return jsonify({
+                'status': 'success',
+                'version': result.stdout.strip(),
+                'message': 'Ghostscript is available'
+            })
+        else:
+            return jsonify({
+                'status': 'error',
+                'message': 'Ghostscript command returned error',
+                'stderr': result.stderr
+            }), 500
+    except Exception as e:
+        return jsonify({
+            'status': 'error',
+            'message': f'Failed to check Ghostscript: {str(e)}'
+        }), 500
 
 # Error handlers
 @app.errorhandler(413)
